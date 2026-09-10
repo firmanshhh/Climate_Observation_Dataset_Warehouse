@@ -9,15 +9,10 @@ Repositori ini berisikan informasi terkait denga proses quality control dan di h
 ## 📋 Table of Contents
 - [Overview](#overview)
 - [Features](#features)
-- [Installation](#installation)
 - [Data](#data)
-- [Usage](#usage)
 - [Methodology](#methodology)
 - [Results](#results)
-- [Dependencies](#dependencies)
-- [Contributing](#contributing)
 - [License](#license)
-- [Citation](#citation)
 - [Contact](#contact)
 
 ## Overview
@@ -31,22 +26,6 @@ Repositori ini berisikan informasi terkait denga proses quality control dan di h
 - ✅ Mendukung analisa iklim jangka panjang
 - ✅ Perhitungan anomali suhu bulanan yang terstandarisasi
 
-## Installation
-### Prerequisites
-- Python 3.10+
-- Conda (recommended)
-
-### Setup
-```bash
-# Clone repository
-git clone https://github.com/username/high-res-downscaling-cmip6.git
-cd high-res-downscaling-cmip6
-
-# Create containers
-cd containers
-apptainer build smong-tensorflow-bcsd.sif smong-tensorflow.def
-
-```
 
 ## Data
 | Dataset | Sumber | Resolusi | Periode |
