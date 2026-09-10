@@ -14,7 +14,7 @@ LONG_DIR         = os.path.join(DATA_DIR, '05.Long_Format_Dataset')
 def generate_report(year, month):
     PLOT_ANOMALI_DIR = os.path.join(LONG_DIR, 'PLOT_ANOMALI')
     RESULT_DIR       = os.path.join(PLOT_ANOMALI_DIR, f'{year}/{year}_{month:02d}')
-    TEMPLATE_PATH    = os.path.join(WORKING_DIR, 'src', '00.TEMPLATE_REPORT.docx')
+    TEMPLATE_PATH    = os.path.join(WORKING_DIR, 'docs', '00.TEMPLATE_REPORT.docx')
     try:
         SUMMARY_INDO     = pd.read_csv(os.path.join(LONG_DIR, f'06.TEMPERATURE_ANOMALI_INDONESIA_DB.csv'))
         SUMMARY_INDO     = SUMMARY_INDO.rename(columns={'year':'Tahun','month':'Bulan'})

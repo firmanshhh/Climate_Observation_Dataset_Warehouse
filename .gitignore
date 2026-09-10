@@ -61,3 +61,4 @@ download/*
 !download/.gitkeep
 !download/Download_CMIP6_with_aria2c.py
 !download/README.md
+!data/03.QC_Level_02/TEMP_24H_TN_C_BASELINE_1981/plots/WMO_96001_homogen_plot_fallback.png
