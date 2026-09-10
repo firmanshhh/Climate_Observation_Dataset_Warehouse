@@ -1,4 +1,4 @@
-# Dataset Perubahan Iklim Terstandarisasi
+# Quality_Control_And_Homogenisasi_Fklim71
 
 Repositori ini berisikan informasi terkait denga proses quality control dan di homogenisasi dataaset FKLIM71 yang diambil dari seluruh stasiun pengamatan BMKG untuk menunjang keperluan analisa iklim. Dataset ini nantinya akan disimpan pada database perubabahan iklim yang dikelola oleh Bidang Analisis Perubahan Iklim BMKG, Kedeputian Bidang Klimatologi. Untuk akses data dapat menghubungi kotak terlampir.
 
