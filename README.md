@@ -71,10 +71,14 @@ Penjelasan metode yang dipakai untuk Homogenisasi:
 
 
 ## Results
-Contoh output/visualisasi (bisa sertakan gambar):
-
 ```markdown
-![Sample Result](output/WMO_96001_homogen_plot_fallback.png)
+![Hasil Regionalisasi](output/Station_Regions_PCA.png)
+```
+```markdown
+![Explained Variance Cumulative](output/Explained_Variance_Cumulative.png)
+```
+```markdown
+![Hasil Homogenisasi](output/WMO_96001_homogen_plot_fallback.png)
 ```
 
 
