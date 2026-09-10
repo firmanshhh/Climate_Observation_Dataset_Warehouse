@@ -343,22 +343,87 @@ for param in PARAMS:
                 f"Original Time Series Baseline {baseline}",
                 qc_col=None
             )
+            
+    # # Langkah 2: Handling Duplicates Across All Variables
+    # logging.info(f"Langkah 2: Removing duplicates for {param}...")
+    # meta_cols_set = {'NAME', 'CURRENT_LATITUDE', 'CURRENT_LONGITUDE', 'PROVINSI', 'KABUPATEN', 'ELEVATION', 'WIND_DIR_24H_CARDINAL'}
+    # value_cols = [c for c in df_avail.columns if c not in {ID_COL, TIME_COL} and c not in meta_cols_set]
+    # df_qc01 = df_avail.sort_values([ID_COL, TIME_COL]).copy()
+    # df_qc01[f'DVAT_{param}'] = df_qc01.duplicated(subset=[ID_COL] + value_cols, keep='first')
+    # before = len(df_qc01)
+    # df_dvat = df_qc01.drop_duplicates(subset=[ID_COL] + value_cols, keep='first').reset_index(drop=True)
+    # after = len(df_dvat)
+    # logging.info(f"Removed {before - after} duplicate rows.")
+    # df_dvat.groupby(ID_COL)[f'DVAT_{param}'].sum().reset_index().to_csv(os.path.join(sum_dir, '01.Summary_DVAT.csv'), index=False)
+    # df_dvat = df_dvat.drop_duplicates(subset=[ID_COL, TIME_COL], keep='first').reset_index(drop=True)
+    # save_qc_step(df_dvat, param, valid_1991, valid_1981, adj_dir, step_dirs['01.DuplicatesRemoved'], '01.DVAT_removed', 'After Duplicate Removal')
+    # df_qc02 = df_dvat.copy()
+    # if f'QC_{param}' not in df_qc02.columns:
+    #     df_qc02[f'QC_{param}'] = df_qc02[f'RAW_{param}'].copy()
+    # if param in TEMP_COLS:
+    #     for temp_col in TEMP_COLS:
+    #         if f'QC_{temp_col}' not in df_qc02.columns:
+    #             df_qc02[f'QC_{temp_col}'] = df_qc02[f'RAW_{temp_col}'].copy()
 
-    # Langkah 2: Handling Duplicates Across All Variables
-    logging.info(f"Langkah 2: Removing duplicates for {param}...")
-    meta_cols_set = {'NAME', 'CURRENT_LATITUDE', 'CURRENT_LONGITUDE', 'PROVINSI', 'KABUPATEN', 'ELEVATION', 'WIND_DIR_24H_CARDINAL'}
-    value_cols = [c for c in df_avail.columns if c not in {ID_COL, TIME_COL} and c not in meta_cols_set]
-    df_qc01 = df_avail.sort_values([ID_COL, TIME_COL]).copy()
-    df_qc01[f'DVAT_{param}'] = df_qc01.duplicated(subset=[ID_COL] + value_cols, keep='first')
-    before = len(df_qc01)
-    df_dvat = df_qc01.drop_duplicates(subset=[ID_COL] + value_cols, keep='first').reset_index(drop=True)
-    after = len(df_dvat)
-    logging.info(f"Removed {before - after} duplicate rows.")
-    df_dvat.groupby(ID_COL)[f'DVAT_{param}'].sum().reset_index().to_csv(os.path.join(sum_dir, '01.Summary_DVAT.csv'), index=False)
-    df_dvat = df_dvat.drop_duplicates(subset=[ID_COL, TIME_COL], keep='first').reset_index(drop=True)
-    save_qc_step(df_dvat, param, valid_1991, valid_1981, adj_dir, step_dirs['01.DuplicatesRemoved'], '01.DVAT_removed', 'After Duplicate Removal')
-
+    # Langkah 2: Menandai duplikat berturut-turut ≥5 hari sebagai NaN (baris tetap dipertahankan)
+    logging.info(f"Langkah 2: Menandai duplikat berturut-turut ≥5 hari sebagai NaN untuk {param}...")
+    df_qc02 = df_avail.copy()
+    # Pastikan kolom QC tersedia
+    qc_col = f'QC_{param}'
+    if qc_col not in df_qc02.columns:
+        df_qc02[qc_col] = df_qc02[f'RAW_{param}'].copy()
+    # Urutkan data
+    df_qc02 = df_qc02.sort_values([ID_COL, TIME_COL]).reset_index(drop=True)
+    # Fungsi untuk menandai duplikat berturut-turut ≥5 hari, dengan pengecualian untuk rainfall=0
+    def mark_long_duplicate_runs(group, value_col, param_name, min_run_length=5):
+        group = group.copy()
+        # Buat salinan nilai untuk analisis run
+        values = group[value_col].copy()
+        # Jika ini curah hujan, ganti 0 dengan NaN sementara agar tidak dianggap dalam run duplikat
+        if 'RAINFALL_24H_MM' in param_name:
+            is_zero = (values == 0)
+            values_for_change = values.where(~is_zero, other=pd.NA)
+        else:
+            values_for_change = values
+        # Deteksi perubahan nilai (NaN tidak dianggap sama dengan apa pun)
+        group['value_changed'] = values_for_change.ne(values_for_change.shift(1))
+        group['run_id'] = group['value_changed'].cumsum()
+        # Hitung panjang run hanya untuk nilai non-NaN (dan non-0 untuk hujan)
+        run_lengths = group.groupby('run_id')[value_col].transform(
+            lambda x: x.count() if not x.isna().all() else 0
+        )
+        group['run_length'] = run_lengths
+        # Tentukan apakah baris ini bagian dari run panjang yang perlu ditandai sebagai NaN
+        if 'RAINFALL' in param_name:
+            # Untuk hujan: hanya tandai NaN jika nilai > 0 DAN run_length ≥5 DAN bukan baris pertama
+            group['to_mask'] = (
+                (group[value_col] > 0) &
+                (group['run_length'] >= min_run_length) &
+                (~group['value_changed']))
+        else:
+            # Untuk suhu: tandai NaN semua run ≥5 kecuali baris pertama
+            group['to_mask'] = (
+                (group[value_col].notna()) &
+                (group['run_length'] >= min_run_length) &
+                (~group['value_changed']))
+        return group[['to_mask']]
+    # Note: min_run_length diset 4 sesuai kode asli Anda, bisa disesuaikan ke 5 jika perlu
+    mask_flags = df_qc02.groupby(ID_COL, group_keys=False).apply(
+        mark_long_duplicate_runs, value_col=qc_col, param_name=param, min_run_length=4
+    ).reset_index(drop=True)
+    df_qc02['to_mask'] = mask_flags['to_mask']
+    # --- PERUBAHAN UTAMA DI SINI ---
+    # Alih-alih menghapus baris, kita ubah nilai pada kolom QC menjadi NaN
+    masked_count = df_qc02['to_mask'].sum()
+    df_qc02.loc[df_qc02['to_mask'], qc_col] = np.nan
+    # Hapus kolom helper dan reset index (tanpa filtering baris)
+    df_dvat = df_qc02.drop(columns=['to_mask']).reset_index(drop=True)
+    logging.info(f"Masked {masked_count} values with duplicate runs ≥5 days to NaN for {param} (rows retained).")  
+    # Menyimpan data setelah proses masking
+    save_qc_step(df_dvat, param, valid_1991, valid_1981, adj_dir, step_dirs['01.DuplicatesRemoved'], '01.DVAT_masked', 'After Duplicate Masking')
+    # Copy data untuk langkah berikutnya
     df_qc02 = df_dvat.copy()
+    # Pastikan kolom QC tersedia untuk langkah selanjutnya (jika perlu inisialisasi ulang)
     if f'QC_{param}' not in df_qc02.columns:
         df_qc02[f'QC_{param}'] = df_qc02[f'RAW_{param}'].copy()
     if param in TEMP_COLS:

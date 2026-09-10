@@ -19,8 +19,8 @@ import datetime
 def qc_level1_bmkg(df):
     df = df.replace(9999, pd.NA)
     df = df.replace(9999.0, pd.NA)
-    df = df.replace(8888, pd.NA)
-    df = df.replace(8888.0, pd.NA)
+    df = df.replace(8888, 0)
+    df = df.replace(8888.0, 0)
     return df
 
 def normalize_date_columns_for_melt(df):
@@ -79,61 +79,47 @@ def get_data_from_ftp(vars='RRR', list_year=['199101', '199102']):
         'WSMAX': 'WIND_SPEED_24H_MAX_MS',
         'WSMEAN': 'WIND_SPEED_24H_MEAN_MS'
     }
-    
     if vars not in var_mapping:
         raise ValueError(f'Variabel tidak dikenali: {vars}. Pilihan: {list(var_mapping.keys())}')
-    
     vars_name = var_mapping[vars]
     df = pd.DataFrame()
-
     for yyyymm in list_year:
         year = int(str(yyyymm)[:4])
         try:
-            # Tentukan lokasi FTP
-            if vars == 'TMAX' and year < 2024:
+            # Tentukan lokasi FTP berdasarkan periode:
+            # - Sebelum Mei 2025 (yyyymm < 202505): gunakan lokasi lama DATA_FKLIM_UPDATE
+            # - Mei 2025 dan seterusnya (yyyymm >= 202505): gunakan lokasi baru DATA_FKLIM_WS
+            if int(yyyymm) >= 202505:
+                FTP_Loc = f'http://172.19.1.208/direktori-bidang-avi/DATA_FKLIM_WS/{vars}'
+            elif vars == 'TMAX' and year < 2024:
                 FTP_Loc = f'http://172.19.1.208/direktori-bidang-avi/DATA_FKLIM_UPDATE/{vars}/{year}'
             else:
                 FTP_Loc = f'http://172.19.1.208/direktori-bidang-avi/DATA_FKLIM_UPDATE/{vars}'
-                
             url = f'{FTP_Loc}/{vars}_fklim_{yyyymm}.csv'
-            
-            # Unduh data
             df_month = pd.read_csv(url)
-            
-            # === Normalisasi kolom tanggal SEBELUM melting ===
             df_month = normalize_date_columns_for_melt(df_month)
-            
-            # === Melting sesuai fungsi Anda ===
             melted_df = melt_ch_data(df_month, id_vars=['Thn', 'Bln', 'Tgl'])
-            
             # Konversi tipe data tanggal
             melted_df['Thn'] = pd.to_numeric(melted_df['Thn'], errors='coerce')
             melted_df['Bln'] = pd.to_numeric(melted_df['Bln'], errors='coerce')
             melted_df['Tgl'] = pd.to_numeric(melted_df['Tgl'], errors='coerce')
-            
             # Buat DATA_TIMESTAMP
             melted_df['DATA_TIMESTAMP'] = pd.to_datetime({
                 'year': melted_df['Thn'],
                 'month': melted_df['Bln'],
                 'day': melted_df['Tgl']
             }, errors='coerce')
-            
             # Hapus baris dengan tanggal invalid
             melted_df = melted_df.dropna(subset=['DATA_TIMESTAMP'])
-            
             # Rename VALUE → nama variabel
             melted_df = melted_df.rename(columns={'VALUE': vars_name})
-            
             # Simpan kolom penting
             cols_to_keep = ['WMO_ID', 'DATA_TIMESTAMP', vars_name]
             melted_df = melted_df[cols_to_keep]
-            
             df = pd.concat([df, melted_df], ignore_index=True)
             logging.info(f"Sukses mengunduh dan memproses data {vars_name} untuk {yyyymm}")
-            
         except Exception as e:
             logging.error(f"Gagal mengunduh atau memproses data {vars_name} untuk {yyyymm}: {e}")
-    
     return df
 
 
@@ -157,9 +143,12 @@ WORKING_DIR   = os.path.abspath(os.path.join(os.getcwd(), '..'))
 DATA_ROOT     = os.path.join(WORKING_DIR, 'data')
 DATA_ARI_ROBI = os.path.join(DATA_ROOT, '00.Robi_Dataset')
 RAW_DIR       = os.path.join(DATA_ROOT, '00.Raw_Dataset')
+CACHE_DIR     = os.path.join(DATA_ROOT, '00.Cache')
 os.makedirs(RAW_DIR, exist_ok=True)
+os.makedirs(CACHE_DIR, exist_ok=True)
+CACHE_FILE    = os.path.join(CACHE_DIR, 'update_data_ftp_cache.parquet')
 logger.info(f"Raw directory ensured: {RAW_DIR}")
-
+logger.info(f"Cache file path: {CACHE_FILE}")
 logger.info("Loading station metadata from Excel...")
 metadata = pd.read_excel(f'{DATA_ARI_ROBI}/02.NC4_STABMKG_PDB2024_CH_DAILY_1991-2024_QC_LEVEL2.xlsx', sheet_name='INFOSTA')
 metadata = metadata[['NOSTA', 'STA','LAT', 'LON', 'PROV','KAB', 'ELEV']]
@@ -224,13 +213,44 @@ current_month = now.month
 current_day = now.day
 logger.info(f"Current date: {current_year}-{current_month:02d}-{current_day:02d}")
 
-list_data = []
+# Buat daftar semua periode yang diperlukan (2021 s/d bulan sekarang)
+all_list_data = []
 for year in range(2021, current_year + 1):
     start_month = 1
     end_month = 12 if year < current_year else current_month
     for month in range(start_month, end_month + 1):
-        list_data.append(year * 100 + month)
-logger.info(f"Generated {len(list_data)} time periods for FTP update (e.g., last 10: {list_data[-10:]})")
+        all_list_data.append(year * 100 + month)
+
+# ============================================================
+# INCREMENTAL UPDATE: cek cache agar tidak download ulang semua
+# ============================================================
+CACHED_UPDATE_DATA = None
+if os.path.exists(CACHE_FILE):
+    try:
+        logger.info(f"Cache ditemukan. Memuat data cache dari: {CACHE_FILE}")
+        CACHED_UPDATE_DATA = pd.read_parquet(CACHE_FILE)
+        CACHED_UPDATE_DATA['DATA_TIMESTAMP'] = pd.to_datetime(CACHED_UPDATE_DATA['DATA_TIMESTAMP'])
+
+        # Tentukan periode (yyyymm) terakhir yang ada di cache
+        last_ts = CACHED_UPDATE_DATA['DATA_TIMESTAMP'].max()
+        last_yyyymm = last_ts.year * 100 + last_ts.month
+        logger.info(f"Cache mencakup data hingga periode {last_yyyymm} ({last_ts.strftime('%Y-%m')}).")
+
+        # Hanya download dari bulan terakhir cache ke atas
+        # (re-download bulan terakhir karena bisa saja data belum lengkap saat run sebelumnya)
+        list_data = [ym for ym in all_list_data if ym >= last_yyyymm]
+        logger.info(f"Mode INCREMENTAL: akan mengunduh {len(list_data)} periode "
+                    f"(dari {list_data[0]} hingga {list_data[-1]}), "
+                    f"dihemat {len(all_list_data) - len(list_data)} periode dari total {len(all_list_data)}.")
+    except Exception as e:
+        logger.warning(f"Gagal memuat cache: {e}. Fallback ke download penuh dari awal.")
+        CACHED_UPDATE_DATA = None
+        list_data = all_list_data
+else:
+    logger.info("Cache belum ada. Mode FULL DOWNLOAD: mengunduh semua data dari 2021...")
+    list_data = all_list_data
+
+logger.info(f"Total periode yang akan diunduh: {len(list_data)} (dari {list_data[0]} hingga {list_data[-1]})")
 
 # Fetch updated data from FTP
 logger.info("Fetching updated data from FTP for multiple variables...")
@@ -279,6 +299,28 @@ UPDATE_DATA['DATA_TIMESTAMP'] = UPDATE_DATA['DATA_TIMESTAMP'].astype('datetime64
 FKLIM_DAILY['WMO_ID'] = FKLIM_DAILY['WMO_ID'].astype(str)
 FKLIM_DAILY['DATA_TIMESTAMP'] = FKLIM_DAILY['DATA_TIMESTAMP'].astype('datetime64[ns]')
 
+# ============================================================
+# SIMPAN / PERBARUI CACHE INCREMENTAL
+# ============================================================
+logger.info("Memperbarui cache data FTP...")
+if CACHED_UPDATE_DATA is not None:
+    # Hapus dari cache lama periode yang di-re-download agar tidak duplikat
+    min_new_yyyymm = min(list_data)
+    cached_yyyymm_series = CACHED_UPDATE_DATA['DATA_TIMESTAMP'].apply(
+        lambda x: x.year * 100 + x.month
+    )
+    CACHED_UPDATE_DATA = CACHED_UPDATE_DATA[cached_yyyymm_series < min_new_yyyymm]
+    logger.info(f"Cache lama: mempertahankan {len(CACHED_UPDATE_DATA)} baris (periode < {min_new_yyyymm})")
+    UPDATE_DATA = pd.concat([CACHED_UPDATE_DATA, UPDATE_DATA], ignore_index=True)
+    logger.info(f"UPDATE_DATA setelah digabung dengan cache lama: {len(UPDATE_DATA)} baris")
+
+# Simpan cache terbaru ke disk (format Parquet: lebih cepat & hemat storage)
+try:
+    UPDATE_DATA.to_parquet(CACHE_FILE, index=False)
+    logger.info(f"Cache berhasil disimpan ke: {CACHE_FILE} ({len(UPDATE_DATA)} baris)")
+except Exception as e:
+    logger.warning(f"Gagal menyimpan cache: {e}. Pipeline dilanjutkan tanpa cache.")
+
 # Combine datasets
 logger.info("Combining historical and updated data...")
 UPDATE_DATA = UPDATE_DATA[FKLIM_DAILY.columns]
@@ -305,4 +347,3 @@ output_filename = f'{RAW_DIR}/02.BMKGSOFT_VIEW_FKLIM_DAILY_1991-2024_UPDATED_{cu
 UPDATE_DB.to_csv(output_filename, index=False)
 logger.info(f"Final dataset saved to: {output_filename}")
 logger.info("=== DATA PROCESSING PIPELINE COMPLETED SUCCESSFULLY ===")
-

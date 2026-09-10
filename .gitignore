@@ -1,0 +1,63 @@
+# ==== Environment & Secrets (WAJIB) ====
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+config/secrets.yml
+
+# ==== Node.js ====
+node_modules/
+npm-debug.log*
+yarn-error.log*
+dist/
+build/
+.next/
+.nuxt/
+
+# ==== Python ====
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+.venv/
+*.egg-info/
+
+# ==== OS Files ====
+.DS_Store
+Thumbs.db
+
+# ==== Editor / IDE ====
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ==== Logs ====
+*.log
+logs/
+
+# ==== Misc ====
+*.tmp
+*.bak
+.cache/
+
+#Spesific File
+*.csv
+
+# Ignore semua isi folder data dan container
+data/*
+containers/*
+
+# Tapi jangan ignore file .gitkeep-nya
+!data/.gitkeep
+!containers/.gitkeep
+!containers/smong-tensorflow-req.txt
+!containers/smong-tensorflow.def
+
+slurm*
+download/*
+!download/.gitkeep
+!download/Download_CMIP6_with_aria2c.py
+!download/README.md

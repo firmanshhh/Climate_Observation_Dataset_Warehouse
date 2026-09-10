@@ -6,17 +6,14 @@ PYTHON_BIN="/home/api/anaconda3/envs/wrfpython/bin/python"
 
 # Ambil lokasi folder tempat script .sh ini berada
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOG_FILE="$SCRIPT_DIR/pipeline_execution.log"
+LOG_FILE="$SCRIPT_DIR/14.Post_Processing.log"
 
 # Daftar file yang akan dijalankan secara berurutan
 SCRIPTS=(
-    "00.Get_Updated_Data.py"
-    "01.QC_Dataset_Level_01.py"
-    "02.Regionalisasi_Dataset.py"
-    "03.Homogenisasi_Dataset_Monthly.py"
-    "04.Homogenisasi_Dataset_Merged.py"
-    "05.Generate_Longform_Dataset.py"
-    "06.Anomali.py"
+    "08.Ploting_Anomali_Suhu.py"
+    "09.Ploting_Trata.py"
+    "10.Ploting_Monthly_Diff.py"
+    "11.Generat_Report.py"
 )
 
 # --- VALIDASI ---
@@ -55,4 +52,4 @@ for script in "${SCRIPTS[@]}"; do
 done
 
 echo "------------------------------------------------"
-echo "🎉 Seluruh proses 00-05 telah selesai!"
+echo "🎉 Seluruh proses 00-10 telah selesai!"

@@ -15,7 +15,7 @@ LONG_DIR      = os.path.join(DATA_ROOT, '05.Long_Format_Dataset')
 def get_anomali_dataset(path):
     df_path    = os.path.join(path, '04.DATA_HOMO_DB.csv')
     df_homo    = pd.read_csv(df_path)
-    df_anomali = df_homo[(df_homo['parameter'] == 'TEMPERATURE_AVG_C') &(df_homo['source']    == 'homogenisasi') &(df_homo['baseline']  == 1991)].copy()
+    df_anomali = df_homo[(df_homo['parameter'] == 'TEMP_24H_TN_C') &(df_homo['source']    == 'homogenisasi') &(df_homo['baseline']  == 1991)].copy()
     df_anomali['time'] = pd.to_datetime(df_anomali['time'])
     return df_anomali
 
@@ -24,7 +24,7 @@ def get_qc_dataset(path=LONG_DIR,wmoids=None):
     df_homo    = pd.read_csv(df_path)
     df_homo['time'] = pd.to_datetime(df_homo['time'])
     df_homo['year'] = df_homo['time'].dt.year
-    df_anomali = df_homo[(df_homo['parameter'] == 'TEMPERATURE_AVG_C') & (df_homo['source'] == 'raw')& (df_homo['year'] >= 1991) ].copy()
+    df_anomali = df_homo[(df_homo['parameter'] == 'TEMP_24H_TN_C') & (df_homo['source'] == 'raw')& (df_homo['year'] >= 1991) ].copy()
     if wmoids is not None:
         df_anomali = df_anomali[df_anomali['wmo_id'].isin(wmoids)]
     else:
@@ -106,15 +106,15 @@ mask_80 = (data_for_anomali['flag_anomali'] < 80) | (data_for_anomali['flag_anom
 data_for_anomali.loc[mask_80, 'value'] = np.nan
 data_for_anomali['value'] = round(data_for_anomali['value'], 2)
 data_for_anomali['month'] = data_for_anomali['time'].dt.month
-data_for_anomali.to_csv(os.path.join(LONG_DIR, '06.TEMPERATURE_MONTHLY_DB.csv'))
+data_for_anomali.to_csv(os.path.join(LONG_DIR, '08.TMIN_MONTHLY_DB.csv'))
 
 
 # Dapatkan normal (pastikan kolomnya bernama 'normal')
 # dataNormal           = get_dataNormal(data_for_anomali, start_year=1991, end_year=2020)
 # dataNormal           = dataNormal.dropna(subset=['normal'])  # Hapus NaN di kolom normal
 # dataNormal['normal'] = round(dataNormal['normal'], 2)
-# dataNormal.to_csv(os.path.join(LONG_DIR, '06.TEMPERATURE_ANOMALI_NORMAL_DB.csv'), index=False)
-dataNormal = pd.read_csv(os.path.join(LONG_DIR, '06.TEMPERATURE_ANOMALI_NORMAL_DB.csv'))
+# dataNormal.to_csv(os.path.join(LONG_DIR, '08.TMIN_ANOMALI_NORMAL_DB.csv'), index=False)
+dataNormal = pd.read_csv(os.path.join(LONG_DIR, '08.TMIN_ANOMALI_NORMAL_DB.csv'))
 
 #Hitung anomali bulanan
 dataAnomali = pd.DataFrame()
@@ -157,18 +157,18 @@ dataAnomaliIND['normal']                = round(dataAnomaliIND['normal'],2)
 dataAnomaliIND['anomali']               = dataAnomaliIND['value'] - dataAnomaliIND['normal']
 dataAnomaliIND['anomali']               = round(dataAnomaliIND['anomali'],2)
 
-dataAnomaliIND                            = dataAnomaliIND[['year','month','value','normal','anomali','Jumlah_Stasiun_Valid','jumlah_stasiun_bulan_ini']]
-dataAnomaliIND                            = dataAnomaliIND.dropna(axis=0)
-dataAnomaliIND['suhu_bulan_sebelum']      = round(dataAnomaliIND['value'].shift(1),2)
-dataAnomaliIND['anomali_diff']            = round(dataAnomaliIND['anomali'].shift(1),2)
-dataAnomaliIND['selisih_suhu']            = round((dataAnomaliIND['value'] - dataAnomaliIND['suhu_bulan_sebelum']),2)
-dataAnomaliIND['rank_from_all_month']     = dataAnomaliIND.groupby('month')['anomali'].rank(method='min', ascending=False).astype(int)
+dataAnomaliIND                          = dataAnomaliIND[['year','month','value','normal','anomali','Jumlah_Stasiun_Valid','jumlah_stasiun_bulan_ini']]
+dataAnomaliIND                          = dataAnomaliIND.dropna(axis=0)
+dataAnomaliIND['suhu_bulan_sebelum']    = round(dataAnomaliIND['value'].shift(1),2)
+dataAnomaliIND['anomali_diff']          = round(dataAnomaliIND['anomali'].shift(1),2)
+dataAnomaliIND['selisih_suhu']          = round((dataAnomaliIND['value'] - dataAnomaliIND['suhu_bulan_sebelum']),2)
+dataAnomaliIND['rank_from_all_month']   = dataAnomaliIND.groupby('month')['anomali'].rank(method='min', ascending=False).astype(int)
 dataAnomaliIND['rank_from_all_month_abs'] = dataAnomaliIND.groupby('month')['value'].rank(method='min', ascending=False).astype(int)
-dataAnomaliIND['coverage_percentage']     = (dataAnomaliIND['jumlah_stasiun_bulan_ini'] / dataAnomaliIND['Jumlah_Stasiun_Valid'] * 100).round(2)
-dataAnomaliIND['coverage_flag']           = np.where(dataAnomaliIND['coverage_percentage'] >= 80, 'VALID', 'LOW_COVERAGE')
+dataAnomaliIND['coverage_percentage']   = (dataAnomaliIND['jumlah_stasiun_bulan_ini'] / dataAnomaliIND['Jumlah_Stasiun_Valid'] * 100).round(2)
+dataAnomaliIND['coverage_flag']         = np.where(dataAnomaliIND['coverage_percentage'] >= 80, 'VALID', 'LOW_COVERAGE')
 dataAnomaliIND = dataAnomaliIND.rename(columns={'value':'trata'})
-dataAnomali.to_csv(os.path.join(LONG_DIR, '06.TEMPERATURE_ANOMALI_DB.csv'), index=False)
-dataAnomaliIND.to_csv(os.path.join(LONG_DIR, '06.TEMPERATURE_ANOMALI_INDONESIA_DB.csv'), index=False)
+dataAnomali.to_csv(os.path.join(LONG_DIR, '08.TMIN_ANOMALI_DB.csv'), index=False)
+dataAnomaliIND.to_csv(os.path.join(LONG_DIR, '08.TMIN_ANOMALI_INDONESIA_DB.csv'), index=False)
 dataNormal_Indo = dataNormal_Indo.rename(columns={'normal':'Normal_Indonesia'})
-dataNormal_Indo.to_csv(os.path.join(LONG_DIR, '06.TEMPERATURE_NORMAL_SUMMARY_DB.csv'), index=False)
+dataNormal_Indo.to_csv(os.path.join(LONG_DIR, '08.TMIN_NORMAL_SUMMARY_DB.csv'), index=False)
 print("Proses perhitungan anomali suhu rata-rata selesai.")

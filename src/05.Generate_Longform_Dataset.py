@@ -273,6 +273,19 @@ for param in params:
 dataQc  = dataQc.sort_values(['wmo_id', 'parameter', 'time']).reset_index(drop=True)
 dataRaw = dataRaw.sort_values(['wmo_id', 'parameter', 'time']).reset_index(drop=True)
 
+#melengkapi metadata
+target_cols = ['name', 'latitude', 'longitude', 'elevation', 'provinsi', 'kabupaten']
+available_cols = [col for col in target_cols if col in METADATA.columns and col in dataQc.columns]
+key_col='wmo_id'
+merged = dataQc.merge(METADATA[[key_col] + available_cols], on=key_col, how='left', suffixes=('', '_new'))
+for col in available_cols:
+    col_new = f"{col}_new"
+    dataQc[col] = dataQc[col].fillna(merged[col_new])
+missing_before = dataQc[available_cols].isnull().sum()
+print("Proses pengisian selesai.")
+print("Sisa data kosong per kolom:")
+print(dataQc[available_cols].isnull().sum())
+
 #gabungkan dataQc dan dataRaw ke dalam satu file CSV terpisah
 dataRaw.to_csv(os.path.join(LONG_DIR, '02.DATA_RAW_DB.csv'), index=False)
 dataQc.to_csv(os.path.join(LONG_DIR,  '03.DATA_QC_DB.csv'), index=False)
@@ -328,26 +341,87 @@ dataRobi['time']      = pd.to_datetime(dataRobi['time'], errors='coerce')
 #drop data per stasiun yang datanya null semua
 dataRobi              = dataRobi.groupby('wmo_id').filter(lambda x: x['value'].notna().any()).reset_index(drop=True)
 dataRobi              = dataRobi[(dataRobi['time'] < '2024-01-01') & (dataRobi['time'] >= '1991-01-01') ]
+dataRobi['source']    = 'qc_robi'
 
-# isi data kosong periode selain 1991-2020 dengan data dari dataQC
+# isi data kosong periode selain 1991-2023 dengan data dari dataQC
 dataRain               = dataQc[(dataQc['parameter'] == 'RAINFALL_24H_MM') & (dataQc['source'] == 'qc')].copy()
-dataRobi_extra         = dataRain[(dataRain['time'] < '1991-01-01') | (dataRain['time'] > '2023-12-31')].copy()
+dataRobi_extra         = dataRain[(dataRain['time'] < '1991-01-01') | (dataRain['time'] >= '2024-01-01')].copy()
 dataRobi_extra         = dataRobi_extra.drop(columns=['source'])
 dataRobi_extra['time'] = pd.to_datetime(dataRobi_extra['time'], errors='coerce')
 dataRobi_extra         = dataRobi_extra[dataRobi_extra['wmo_id'].isin(dataRobi['wmo_id'].unique())].drop(columns=['baseline'])
 
 # ganti datarobi pada periode selain 1991-2023 dengan dari dataRobi_extra
 dataRobi_extend = pd.concat([dataRobi, dataRobi_extra], ignore_index=True)
+dataRobi_extend['source'] = 'qc_extend'
+dataRobi_extend['time']   = pd.to_datetime(dataRobi_extend['time'], errors='coerce')
 dataRobi_extend = dataRobi_extend.sort_values(['wmo_id', 'time']).reset_index(drop=True)
-dataRobi_extend.to_csv(os.path.join(LONG_DIR, '05.DATA_ROBI_DB.csv'), index=False)
 
+# =============================================================================
+# FULL PANEL: Pastikan setiap stasiun memiliki semua tanggal yang ada
+# di stasiun manapun. Tanggal yang hilang diisi NaN pada kolom 'value'.
+# =============================================================================
+print("Membuat full panel dataset (setiap stasiun × setiap tanggal)...")
+
+# 1. Kumpulkan semua tanggal unik dari seluruh stasiun
+all_dates = pd.Series(dataRobi_extend['time'].unique()).dropna().sort_values().reset_index(drop=True)
+print(f"  Total tanggal unik: {len(all_dates):,} ({all_dates.min().date()} s/d {all_dates.max().date()})")
+
+# 2. Kumpulkan semua stasiun unik
+all_wmo_ids = dataRobi_extend['wmo_id'].unique()
+print(f"  Total stasiun: {len(all_wmo_ids):,}")
+
+# 3. Buat kombinasi lengkap stasiun × tanggal (cartesian product)
+full_index = pd.MultiIndex.from_product(
+    [all_wmo_ids, all_dates.values],
+    names=['wmo_id', 'time']
+)
+df_full = pd.DataFrame(index=full_index).reset_index()
+print(f"  Full panel size: {len(df_full):,} baris")
+
+# 4. Merge dengan data yang sudah ada
+dataRobi_extend['time'] = pd.to_datetime(dataRobi_extend['time'])
+df_full['time']         = pd.to_datetime(df_full['time'])
+df_panel = df_full.merge(
+    dataRobi_extend,
+    on=['wmo_id', 'time'],
+    how='left'
+)
+
+# 5. Isi metadata yang kosong dari tabel METADATA berdasarkan wmo_id
+meta_fill_cols = ['name', 'latitude', 'longitude', 'provinsi', 'kabupaten', 'elevasi']
+meta_lookup    = METADATA[['wmo_id'] + [c for c in meta_fill_cols if c in METADATA.columns]].drop_duplicates('wmo_id')
+df_panel       = df_panel.merge(meta_lookup, on='wmo_id', how='left', suffixes=('', '_meta'))
+for col in meta_fill_cols:
+    col_meta = f'{col}_meta'
+    if col_meta in df_panel.columns:
+        df_panel[col] = df_panel[col].fillna(df_panel[col_meta])
+        df_panel.drop(columns=[col_meta], inplace=True)
+
+# 6. Isi kolom tetap
+df_panel['parameter'] = 'RAINFALL_24H_MM'
+df_panel['source']    = df_panel['source'].fillna('qc_extend')
+
+# 7. Ringkasan
+n_total    = len(df_panel)
+n_with_val = df_panel['value'].notna().sum()
+n_null_val = df_panel['value'].isna().sum()
+print(f"  Baris total setelah full panel: {n_total:,}")
+print(f"  Baris dengan nilai (notna):     {n_with_val:,}")
+print(f"  Baris dengan NaN (tanggal ada, data tidak ada): {n_null_val:,}")
+
+# 8. Simpan
+df_panel = df_panel.sort_values(['wmo_id', 'time']).reset_index(drop=True)
+df_panel.to_csv(os.path.join(LONG_DIR, '05.DATA_ROBI_EXTEND_DB.csv'), index=False)
+print("Full panel dataset disimpan ke 05.DATA_ROBI_EXTEND_DB.csv")
+
+dataRobi.to_csv(os.path.join(LONG_DIR, '05.DATA_ROBI_DB.csv'), index=False)
 
 # In[ ]:
 
 
 #DEBUGING CEPAT
 import matplotlib.pyplot as plt
-plot_dir = os.path.join(LONG_DIR, 'Rainfall_Extend')
+plot_dir = os.path.join(LONG_DIR, 'PLOT_HUJAN_QC_VS_EXTEND')
 for wmo_id in dataRobi['wmo_id'].unique():
     A = dataRain[dataRain['wmo_id']==wmo_id][['wmo_id','time','value']]
     B = dataRobi_extend[dataRobi_extend['wmo_id']==wmo_id][['wmo_id','time','value']]
@@ -365,6 +439,8 @@ for wmo_id in dataRobi['wmo_id'].unique():
         plt.legend()
         plt.grid()
         plt.tight_layout()
+        if not os.path.exists(plot_dir):
+            os.makedirs(plot_dir)
         plt.savefig(os.path.join(plot_dir, f'Station_{wmo_id}_Rainfall_Comparison.png'))
         plt.close()
     plot_difference(merged, wmo_id, plot_dir)
